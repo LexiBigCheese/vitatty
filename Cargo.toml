@@ -1,0 +1,15 @@
+[package]
+name = "vitatty"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+gl = "0.14.0"
+sdl2 = { version = "^0.37", features = ["use-pkgconfig"] }
+fontdue-sdl2 = { version = "0.3.3-alpha.0", path = "../fontdue-sdl2" }
+derive_more = { version = "2.1.1", features = ["from", "into"] }
+bytemuck = { version = "1.24.0", features = ["derive"] }
+
+[package.metadata.vita]
+title_id = "VITATTY00"
+title_name = "Terminal Emulator"
