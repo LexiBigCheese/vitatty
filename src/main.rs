@@ -1,5 +1,6 @@
 pub mod sh_program;
 pub mod shader;
+pub mod tty_render;
 
 use std::ffi::CString;
 
@@ -55,7 +56,7 @@ unsafe fn setup_gl() {
 
 fn main_but_errors() -> Result<(), Box<dyn std::error::Error>> {
     println!("---- RUN START ----");
-    let shaders = [include_str!("hello_cg.vert")];
+    let shaders = [include_str!("tty16.vert")];
     for shader in shaders {
         let loaded = shader::load_shader(shader, gl::VERTEX_SHADER);
         match loaded {
