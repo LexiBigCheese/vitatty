@@ -3,8 +3,8 @@
 
 // assuming 8 pixel wide font
 
-// unsigned int in uvfg;
-// unsigned int in bg;
+unsigned int in uvfg;
+unsigned int in bg;
 // float2 in corner;
 // int uniform bigAssUniform[bigAssUniformSize] : BUFFER[0]; //pleeeease don't work
 // int uniform otherBigAssUniform[bigAssUniformSize] : BUFFER[0];

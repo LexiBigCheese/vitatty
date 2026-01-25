@@ -241,6 +241,7 @@ impl CharMap {
                 0,
                 self.screen_lower.as_ptr() as _,
             );
+            gl::EnableVertexAttribArray(self.a_uvfg_location);
             // gl::VertexAttribDivisor(self.a_uvfg_location, 1); //Instanced Mode Drawing!!
             gl::VertexAttribPointer(
                 self.a_bg_location,
@@ -250,6 +251,7 @@ impl CharMap {
                 0,
                 self.screen_bg.as_ptr() as _,
             );
+            gl::EnableVertexAttribArray(self.a_bg_location);
             // glVertexAttribDivisor(self.a_bg_location, 1); //WE DON'T HAVE Instanced Mode Drawing!!
             let chrcount = (self.screen_width * self.screen_height) as i32;
             // gl::Uniform1iv(
