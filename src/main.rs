@@ -1,8 +1,15 @@
+pub mod char_manager;
+pub mod default_pal;
 pub mod sh_program;
 pub mod shader;
 pub mod tty_render;
 
 use std::ffi::CString;
+
+use crate::{
+    char_manager::CharMap,
+    default_pal::{PAL_16, PAL_256},
+};
 
 // #[link(name = "SDL2", kind = "static")]
 #[link(name = "vitaGL", kind = "static")]
@@ -41,7 +48,8 @@ unsafe extern "C" {
     pub fn vglBindFragUbo(index: u32);
 }
 
-pub const VERTICES: &'static [f32] = &[0.0f32, 0.5, 0.0, -0.5, -0.5, 0.0, 0.5, -0.5, 0.0];
+pub const VERTICES: &'static [f32] = &[-0.7, 0.7, 0., 0.7, 0.7, 0., -0.7, -0.7, 0., 0.7, -0.7, 0.];
+pub const UVS: &'static [f32] = &[0., 0., 1., 0., 0., 1., 1., 1.];
 
 unsafe fn setup_gl() {
     unsafe {
@@ -54,9 +62,9 @@ unsafe fn setup_gl() {
     });
 }
 
-fn main_but_errors() -> Result<(), Box<dyn std::error::Error>> {
+fn main_but_errors() -> Result<std::convert::Infallible, Box<dyn std::error::Error>> {
     println!("---- RUN START ----");
-    let shaders = [include_str!("tty16.vert")];
+    let shaders = [include_str!("ttytrue.vert")];
     for shader in shaders {
         let loaded = shader::load_shader(shader, gl::VERTEX_SHADER);
         match loaded {
@@ -72,30 +80,80 @@ fn main_but_errors() -> Result<(), Box<dyn std::error::Error>> {
     let vert = shader::load_shader(include_str!("hello_cg.vert"), gl::VERTEX_SHADER)?;
     let frag = shader::load_shader(include_str!("hello_cg.frag"), gl::FRAGMENT_SHADER)?;
     let program = sh_program::load_program(vert, frag)?;
+    let mut texture = 0u32;
     unsafe {
-        gl::UseProgram(program.into());
-        gl::Viewport(0, 0, 960, 544);
-        gl::ClearColor(0.0, 0.0, 0.5, 1.0);
-        gl::VertexAttribPointer(0, 3, gl::FLOAT, gl::FALSE, 0, VERTICES.as_ptr() as _);
-        gl::EnableVertexAttribArray(0);
-        loop {
-            gl::Clear(gl::COLOR_BUFFER_BIT);
-            gl::DrawArrays(gl::TRIANGLES, 0, 3);
-            vglSwapBuffers(gl::FALSE);
+        gl::Enable(gl::TEXTURE_2D);
+        gl::GenTextures(1, &mut texture);
+        gl::BindTexture(gl::TEXTURE_2D, texture);
+        let mut image_data = vec![0xFFFFu16; 128 * 128];
+        for x in 0..128 {
+            for y in 0..128 {
+                let rg = ((y << 9) | (x << 1)) as u16;
+                image_data[(y * 128) + x] = rg;
+            }
+        }
+        gl::TexImage2D(
+            gl::TEXTURE_2D,
+            0,
+            gl::RG8 as i32, //GL_RG
+            128,
+            128,
+            0,
+            gl::RG,
+            gl::UNSIGNED_BYTE,
+            image_data.as_ptr() as _,
+        );
+        gl::GenerateMipmap(gl::TEXTURE_2D);
+        gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::NEAREST as i32);
+        gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::NEAREST as i32);
+        // glBegin(gl::QUADS);
+        // glTexCoord2i(0, 1);
+        // glVertex3f(0., 0., 0.);
+        // glTexCoord2i(1, 1);
+        // glVertex3f(960., 0., 0.);
+        // glTexCoord2i(1, 0);
+        // glVertex3f(960., 544., 0.);
+        // glTexCoord2i(0, 0);
+        // glVertex3f(0., 544., 0.);
+        // glEnd();
+    }
+    let indices = vec![0u16, 1, 2, 1, 3, 2];
+    let mut char_manager = Box::new(
+        CharMap::new(
+            psf2_font::load_terminus().expect("Aw fuck"),
+            68,
+            26,
+            Box::new(PAL_16),
+            Box::new(PAL_256),
+        )
+        .expect("aw fuck, i can't make charmap :("),
+    );
+    char_manager.transform = [glam::vec3(0.1, 0., -0.5), glam::vec3(0., 0.1, -0.5)];
+    for r in 0..26 {
+        for (i, c) in "Hello World! Hello World! Hello World! Hello World! Hello World!Hel"
+            .chars()
+            .enumerate()
+        {
+            char_manager.put_char_16(c, 15, 8, r, i);
         }
     }
     unsafe {
-        program.delete();
-        vert.delete();
-        frag.delete();
+        loop {
+            gl::ClearColor(1.0, 1.0, 1.0, 1.0);
+            gl::Clear(gl::COLOR_BUFFER_BIT);
+            // gl::ActiveTexture(gl::TEXTURE0);
+            // gl::BindTexture(gl::TEXTURE_2D, texture);
+            // gl::Uniform1i(the_texture_location, 0);
+            // gl::DrawElements(gl::TRIANGLES, 6, gl::UNSIGNED_SHORT, indices.as_ptr() as _);
+            char_manager.draw();
+            vglSwapBuffers(gl::FALSE);
+        }
     }
-    Ok(())
 }
 
 fn main() {
     unsafe { setup_gl() };
-    if let Err(e) = main_but_errors() {
-        println!("Error: {}", e);
-    }
+    let Err(e) = main_but_errors();
+    println!("Error: {}", e);
     println!("---- RUN END ----");
 }

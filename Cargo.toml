@@ -6,9 +6,10 @@ edition = "2024"
 [dependencies]
 gl = "0.14.0"
 sdl2 = { version = "^0.37", features = ["use-pkgconfig"] }
-fontdue-sdl2 = { version = "0.3.3-alpha.0", path = "../fontdue-sdl2" }
 derive_more = { version = "2.1.1", features = ["from", "into"] }
 bytemuck = { version = "1.24.0", features = ["derive"] }
+psf2-font = { git = "https://github.com/LexiBigCheese/psf2-font", version = "0.1.1" }
+glam = { version = "0.31.0", features = ["bytemuck"] }
 
 [package.metadata.vita]
 title_id = "VITATTY00"

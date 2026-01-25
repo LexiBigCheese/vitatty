@@ -19,7 +19,7 @@ impl std::fmt::Display for ShaderError {
 
 impl std::error::Error for ShaderError {}
 
-#[derive(From, Into, Clone, Copy, PartialEq, Eq)]
+#[derive(From, Into, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Shader(gl::types::GLuint);
 
 impl Shader {
@@ -43,6 +43,9 @@ impl Shader {
     }
     pub unsafe fn delete(&self) {
         unsafe { gl::DeleteShader(self.0) }
+    }
+    pub fn is_null(&self) -> bool {
+        self.0 == 0
     }
 }
 

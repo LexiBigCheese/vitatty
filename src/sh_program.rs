@@ -19,7 +19,7 @@ impl std::fmt::Display for ProgramError {
 
 impl std::error::Error for ProgramError {}
 
-#[derive(From, Into, Clone, Copy, PartialEq, Eq)]
+#[derive(From, Into, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Program(gl::types::GLuint);
 
 impl Program {
@@ -43,6 +43,26 @@ impl Program {
     }
     pub unsafe fn delete(&self) {
         unsafe { gl::DeleteProgram(self.0) }
+    }
+    pub fn get_attrib_location(&self, attrib: &str) -> i32 {
+        unsafe {
+            gl::GetAttribLocation(
+                self.0,
+                std::ffi::CString::new(attrib)
+                    .expect("What the hell")
+                    .as_ptr() as _,
+            )
+        }
+    }
+    pub fn get_uniform_location(&self, uniform: &str) -> i32 {
+        unsafe {
+            gl::GetUniformLocation(
+                self.0,
+                std::ffi::CString::new(uniform)
+                    .expect("What the hell")
+                    .as_ptr() as _,
+            )
+        }
     }
 }
 

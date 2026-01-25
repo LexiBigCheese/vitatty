@@ -21,3 +21,5 @@ wait hang on if we just use an index buffer and normal triangle mode then we don
 In any case:
 
 a 40ish column terminal is going to need characters 13 pixels wide (which actually gives us enough space for 41 columns)
+
+looks like we'll need to recompile the shaders any time we want to change the width of the terminal, that's fine!
