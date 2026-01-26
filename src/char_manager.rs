@@ -95,7 +95,7 @@ impl CharMap {
                 gl::TexImage2D(
                     gl::TEXTURE_2D,
                     0,
-                    0x1909, //GL_LUMINANCE
+                    gl::RED as i32, //GL_LUMINANCE
                     self.texture_width as i32,
                     self.texture_height as i32,
                     0,
@@ -114,7 +114,7 @@ impl CharMap {
         let (_, tty_true) = tty_true
             .split_once('\n')
             .expect("okay who changed ttytrue.vert to not have a newline in it");
-        let tty_true = format!("#define termWidth {screen_width}\n{tty_true}");
+        let tty_true = format!("#define termWidth {screen_width}.0\n{tty_true}");
         if !self.vertex_shader.is_null() {
             unsafe {
                 self.vertex_shader.delete();
@@ -182,9 +182,9 @@ impl CharMap {
             a_bg_location: 0,
             a_uvfg_location: 0,
         };
+        this.resize(screen_width, screen_height)?;
         this.gen_textures();
         this.compile_link_shaders()?;
-        this.resize(screen_width, screen_height)?;
         Ok(this)
     }
     pub fn resize(
@@ -286,14 +286,15 @@ impl CharMap {
                 4,
                 gl::UNSIGNED_SHORT,
                 QUAD_INDICES.as_ptr() as _,
-                // chrcount,
-                1,
+                chrcount,
+                // 1,
             );
             println!(
-                "DRAW FG {:0>8x} BG {:0>8x} PTR {:0>8x}",
+                "DRAW FG {:0>8x} BG {:0>8x} PTR {:0>8x} CHAR DIM {:?}",
                 self.screen_lower[0],
                 self.screen_bg[0],
-                self.screen_lower.as_ptr() as usize
+                self.screen_lower.as_ptr() as usize,
+                self.char_dim
             );
         }
     }

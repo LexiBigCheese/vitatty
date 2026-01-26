@@ -129,9 +129,9 @@ fn main_but_errors() -> Result<std::convert::Infallible, Box<dyn std::error::Err
         .expect("aw fuck, i can't make charmap :("),
     );
     char_manager.transform = [glam::vec3(0.1, 0., -0.5), glam::vec3(0., 0.1, -0.5)];
-    for r in 0..26 {
+    for r in 0..16 {
         for (i, c) in "Hello World!".chars().enumerate() {
-            char_manager.put_char_16(c, 12, 9, r, i);
+            char_manager.put_char_16(c, r, 1, r, i);
         }
     }
     unsafe {
