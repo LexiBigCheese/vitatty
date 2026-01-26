@@ -243,25 +243,26 @@ impl CharMap {
                 fn glVertexAttribDivisor(index: u32, divisor: u32);
             }
             gl::UseProgram(self.program.into());
+            gl::EnableVertexAttribArray(self.a_uvfg_location);
             gl::VertexAttribPointer(
                 self.a_uvfg_location,
-                self.screen_lower.len() as _,
-                gl::UNSIGNED_INT,
+                4,
+                gl::UNSIGNED_BYTE,
                 gl::FALSE,
                 0,
                 self.screen_lower.as_ptr() as _,
             );
-            gl::EnableVertexAttribArray(self.a_uvfg_location);
-            gl::VertexAttribDivisor(self.a_uvfg_location, 1); //Instanced Mode Drawing!!
+            glVertexAttribDivisor(self.a_uvfg_location, 1); //Instanced Mode Drawing!!
+            println!("a_uvfg_location {}", self.a_uvfg_location);
+            gl::EnableVertexAttribArray(self.a_bg_location);
             gl::VertexAttribPointer(
                 self.a_bg_location,
-                self.screen_bg.len() as _,
-                gl::UNSIGNED_INT,
+                4,
+                gl::UNSIGNED_BYTE,
                 gl::FALSE,
                 0,
                 self.screen_bg.as_ptr() as _,
             );
-            gl::EnableVertexAttribArray(self.a_bg_location);
             glVertexAttribDivisor(self.a_bg_location, 1); //Instanced Mode Drawing!!
             let chrcount = (self.screen_width * self.screen_height) as i32;
             // gl::Uniform1iv(
@@ -287,6 +288,12 @@ impl CharMap {
                 QUAD_INDICES.as_ptr() as _,
                 // chrcount,
                 1,
+            );
+            println!(
+                "DRAW FG {:0>8x} BG {:0>8x} PTR {:0>8x}",
+                self.screen_lower[0],
+                self.screen_bg[0],
+                self.screen_lower.as_ptr() as usize
             );
         }
     }

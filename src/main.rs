@@ -143,6 +143,20 @@ fn main_but_errors() -> Result<std::convert::Infallible, Box<dyn std::error::Err
             // gl::Uniform1i(the_texture_location, 0);
             // gl::DrawElements(gl::TRIANGLES, 6, gl::UNSIGNED_SHORT, indices.as_ptr() as _);
             char_manager.draw();
+            loop {
+                let flag = gl::GetError();
+                if flag == gl::NO_ERROR {
+                    break;
+                }
+                println!(
+                    "GL ERROR {}",
+                    match flag {
+                        gl::INVALID_ENUM => "INVALID_ENUM".to_string(),
+                        gl::INVALID_VALUE => "INVALID_VALUE".to_string(),
+                        flag => flag.to_string(),
+                    }
+                );
+            }
             vglSwapBuffers(gl::FALSE);
         }
     }

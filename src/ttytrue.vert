@@ -3,8 +3,8 @@
 
 // assuming 8 pixel wide font
 
-unsigned int in uvfg;
-unsigned int in bg;
+unsigned char4 in uvfg;
+unsigned char4 in bg;
 // float2 in corner;
 // int uniform bigAssUniform[bigAssUniformSize] : BUFFER[0]; //pleeeease don't work
 // int uniform otherBigAssUniform[bigAssUniformSize] : BUFFER[0];
@@ -20,8 +20,10 @@ float4 out tex_coord : TEXCOORD0;
 void main() {
     // unsigned int uvfg = bigAssUniform[gl_InstanceID];
     // unsigned int bg = otherBigAssUniform[gl_InstanceID];
-    fg_color = float4((uvfg >> 16) & 0xFF, (uvfg >> 8) & 0xFF, uvfg & 0xFF, 255.0) / 255.0;
-    bg_color = float4((bg >> 16) & 0xFF, (bg >> 8) & 0xFF, bg & 0xFF, 255.0) / 255.0;
+    // fg_color = float4((uvfg >> 16) & 0xFF, (uvfg >> 8) & 0xFF, uvfg & 0xFF, 0xFF) / 255.0;
+    fg_color = float4(uvfg.zyx, 0xFF) / 255.0;
+    // fg_color = float4(0xFF, 0x00, 0x00, 0xFF) / 255.0;
+    bg_color = float4(bg.zyx, 0xFF) / 255.0;
 
     // unsigned short charRow = float(gl_InstanceID) / float(termWidth);
     // unsigned short charCol = gl_InstanceID - (charRow * termWidth);
