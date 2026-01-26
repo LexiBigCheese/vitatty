@@ -232,6 +232,16 @@ impl CharMap {
     }
     pub fn draw(&self) {
         unsafe {
+            unsafe extern "C" {
+                fn glDrawElementsInstanced(
+                    mode: u32,
+                    count: i32,
+                    type_: u32,
+                    indices: *const std::ffi::c_void,
+                    primcount: i32,
+                );
+                fn glVertexAttribDivisor(index: u32, divisor: u32);
+            }
             gl::UseProgram(self.program.into());
             gl::VertexAttribPointer(
                 self.a_uvfg_location,
@@ -242,7 +252,7 @@ impl CharMap {
                 self.screen_lower.as_ptr() as _,
             );
             gl::EnableVertexAttribArray(self.a_uvfg_location);
-            // gl::VertexAttribDivisor(self.a_uvfg_location, 1); //Instanced Mode Drawing!!
+            gl::VertexAttribDivisor(self.a_uvfg_location, 1); //Instanced Mode Drawing!!
             gl::VertexAttribPointer(
                 self.a_bg_location,
                 self.screen_bg.len() as _,
@@ -252,7 +262,7 @@ impl CharMap {
                 self.screen_bg.as_ptr() as _,
             );
             gl::EnableVertexAttribArray(self.a_bg_location);
-            // glVertexAttribDivisor(self.a_bg_location, 1); //WE DON'T HAVE Instanced Mode Drawing!!
+            glVertexAttribDivisor(self.a_bg_location, 1); //Instanced Mode Drawing!!
             let chrcount = (self.screen_width * self.screen_height) as i32;
             // gl::Uniform1iv(
             //     self.u_big_ass_uniform_location,
@@ -269,15 +279,7 @@ impl CharMap {
             gl::Uniform1i(self.u_the_texture_location, 0);
             gl::ActiveTexture(gl::TEXTURE0);
             gl::BindTexture(gl::TEXTURE_2D, self.textures[0]);
-            unsafe extern "C" {
-                fn glDrawElementsInstanced(
-                    mode: u32,
-                    count: i32,
-                    type_: u32,
-                    indices: *const std::ffi::c_void,
-                    primcount: i32,
-                );
-            }
+
             glDrawElementsInstanced(
                 gl::QUADS,
                 4,
