@@ -1,13 +1,35 @@
 use std::cmp::Ordering;
 
 use psf2_font::Psf2Font;
-
-use crate::{
-    sh_program::{Program, load_program},
+use vita_gl_helpers::{
+    attribute::{AttributeFormat, AttributeTable},
+    attribute_table,
+    buffer::{Buffer, GenDelBuffersExt},
+    draw::{Elements, ElementsU16},
+    program::{Program, link_program},
     shader::{Shader, load_shader},
+    texture::{GenDelTexturesExt, Texture},
+    uniform_table,
 };
 
 pub const QUAD_INDICES: &[u16] = &[0, 1, 3, 2];
+
+pub const FORMAT_U8X4: AttributeFormat = AttributeFormat {
+    normalized: false,
+    size: vita_gl_helpers::attribute::AttributeSize::FOUR,
+    type_: vita_gl_helpers::attribute::AttributeType::UnsignedByte,
+};
+
+attribute_table!(TtyAttributeTable,
+   uvfg => "uvfg",
+   bg => "bg"
+);
+
+uniform_table!(TtyUniformTable,
+    char_dim: Uniform2fv => "charDim",
+    // transform: UniformMatrix3x2fv => "transform",
+    the_texture: Uniform1iv => "the_texture"
+);
 
 pub struct CharMap {
     pub font: Psf2Font,
@@ -22,13 +44,15 @@ pub struct CharMap {
     pub screen_bg: Vec<u32>,
     ///Upper bytes of characters on the screen, used to select textures
     pub screen_upper: Vec<u8>,
+    ///Vertex Buffer Objects
+    pub vbos: [Buffer; 2],
     /// Vertex shader used to draw with
     pub vertex_shader: Shader,
     /// Fragment shader used to draw with
     pub fragment_shader: Shader,
     /// Program used to draw with
     pub program: Program,
-    pub textures: Vec<gl::types::GLuint>,
+    pub textures: Vec<Texture>,
     pub texture_width: u32,
     pub texture_height: u32,
     pub pal_16: Box<[u32; 16]>,
@@ -37,19 +61,14 @@ pub struct CharMap {
     pub transform: [glam::Vec3; 2],
     // pub u_big_ass_uniform_location: i32,
     // pub u_other_big_ass_uniform_location: i32,
-    pub u_char_dim_location: i32,
-    pub u_transform_location: i32,
-    pub u_the_texture_location: i32,
-    pub a_uvfg_location: u32,
-    pub a_bg_location: u32,
+    pub uniforms: TtyUniformTable,
+    pub attributes: TtyAttributeTable,
 }
 
 impl CharMap {
     fn gen_textures(&mut self) {
         if !self.textures.is_empty() {
-            unsafe {
-                gl::DeleteTextures(self.textures.len() as _, self.textures.as_ptr());
-            }
+            self.textures.delete_textures();
         }
         let (char_width, char_height) = self.font.dimensions();
         self.texture_width = (char_width * 16).next_power_of_two();
@@ -60,10 +79,8 @@ impl CharMap {
             c_dim / t_dim
         };
         let n_textures_to_create = self.font.glyph_count().div_ceil(256);
-        self.textures = vec![0u32; n_textures_to_create];
-        unsafe {
-            gl::GenTextures(n_textures_to_create as i32, self.textures.as_mut_ptr());
-        }
+        self.textures = vec![Texture::default(); n_textures_to_create];
+        self.textures.gen_textures();
         //Keep this here to reuse the allocation. No need to clear as it will be overwritten.
         let mut tex_data = vec![0u8; self.texture_width as usize * self.texture_height as usize];
         let charcount = self.font.glyph_count();
@@ -89,23 +106,20 @@ impl CharMap {
                     char_width as usize,
                 );
             }
-
-            unsafe {
-                gl::BindTexture(gl::TEXTURE_2D, tex_gl);
-                gl::TexImage2D(
-                    gl::TEXTURE_2D,
+            // dump_texture(&tex_data, self.texture_width as usize);
+            tex_gl.bind_then(gl::TEXTURE_2D, |b| {
+                b.image_2d(
                     0,
-                    gl::RED as i32, //GL_LUMINANCE
+                    0x1909,
                     self.texture_width as i32,
                     self.texture_height as i32,
-                    0,
-                    gl::RED,
+                    0x1909u32,
                     gl::UNSIGNED_BYTE,
                     tex_data.as_ptr() as _,
                 );
-                gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::NEAREST as i32);
-                gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::NEAREST as i32);
-            }
+                b.parameter_i(gl::TEXTURE_MIN_FILTER, gl::NEAREST as i32);
+                b.parameter_i(gl::TEXTURE_MAG_FILTER, gl::NEAREST as i32);
+            });
         }
     }
     fn compile_link_shaders(&mut self) -> Result<(), Box<dyn std::error::Error>> {
@@ -122,16 +136,9 @@ impl CharMap {
             }
         }
         self.vertex_shader = load_shader(&tty_true, gl::VERTEX_SHADER)?;
-        self.program = load_program(self.vertex_shader, self.fragment_shader)?;
-        let short = |x| self.program.get_uniform_location(x);
-        // self.u_big_ass_uniform_location = short("bigAssUniform");
-        // self.u_other_big_ass_uniform_location = short("otherBigAssUniformLocation");
-        self.u_char_dim_location = short("charDim");
-        self.u_transform_location = short("transform");
-        self.u_the_texture_location = short("the_texture");
-        let short = |x| self.program.get_attrib_location(x) as u32;
-        self.a_uvfg_location = short("uvfg");
-        self.a_bg_location = short("bg");
+        self.program = link_program(self.vertex_shader, self.fragment_shader)?;
+        self.uniforms = self.program.get_uniform_table()?;
+        self.attributes = TtyAttributeTable::with_locations_from(&self.program)?;
         Ok(())
     }
     ///Gets the space character's lower and upper display values
@@ -161,9 +168,10 @@ impl CharMap {
             ],
             screen_width: 0,
             screen_height: 0,
-            screen_lower: vec![],
-            screen_bg: vec![],
-            screen_upper: vec![],
+            screen_lower: Vec::new(),
+            screen_bg: Vec::new(),
+            screen_upper: Vec::new(),
+            vbos: [Default::default(); 2],
             vertex_shader: Shader::from(0),
             fragment_shader: load_shader(include_str!("tty.frag"), gl::FRAGMENT_SHADER)?,
             program: Program::from(0),
@@ -174,14 +182,10 @@ impl CharMap {
             pal_256,
             char_dim: glam::Vec2::ZERO,
             transform: [glam::Vec3::ZERO; 2],
-            // u_big_ass_uniform_location: 0,
-            // u_other_big_ass_uniform_location: 0,
-            u_char_dim_location: 0,
-            u_the_texture_location: 0,
-            u_transform_location: 0,
-            a_bg_location: 0,
-            a_uvfg_location: 0,
+            uniforms: Default::default(),
+            attributes: Default::default(),
         };
+        this.vbos.gen_buffers();
         this.resize(screen_width, screen_height)?;
         this.gen_textures();
         this.compile_link_shaders()?;
@@ -232,71 +236,33 @@ impl CharMap {
     }
     pub fn draw(&self) {
         unsafe {
-            unsafe extern "C" {
-                fn glDrawElementsInstanced(
-                    mode: u32,
-                    count: i32,
-                    type_: u32,
-                    indices: *const std::ffi::c_void,
-                    primcount: i32,
-                );
-                fn glVertexAttribDivisor(index: u32, divisor: u32);
-            }
-            gl::UseProgram(self.program.into());
-            gl::EnableVertexAttribArray(self.a_uvfg_location);
-            gl::VertexAttribPointer(
-                self.a_uvfg_location,
-                4,
-                gl::UNSIGNED_BYTE,
-                gl::FALSE,
-                0,
-                self.screen_lower.as_ptr() as _,
-            );
-            glVertexAttribDivisor(self.a_uvfg_location, 1); //Instanced Mode Drawing!!
-            println!("a_uvfg_location {}", self.a_uvfg_location);
-            gl::EnableVertexAttribArray(self.a_bg_location);
-            gl::VertexAttribPointer(
-                self.a_bg_location,
-                4,
-                gl::UNSIGNED_BYTE,
-                gl::FALSE,
-                0,
-                self.screen_bg.as_ptr() as _,
-            );
-            glVertexAttribDivisor(self.a_bg_location, 1); //Instanced Mode Drawing!!
-            let chrcount = (self.screen_width * self.screen_height) as i32;
-            // gl::Uniform1iv(
-            //     self.u_big_ass_uniform_location,
-            //     chrcount,
-            //     self.screen_lower.as_ptr() as _,
-            // );
-            // gl::Uniform1iv(
-            //     self.u_other_big_ass_uniform_location,
-            //     chrcount,
-            //     self.screen_bg.as_ptr() as _,
-            // );
-            gl::Uniform2fv(self.u_char_dim_location, 1, &self.char_dim.x);
-            gl::Uniform3fv(self.u_transform_location, 2, &self.transform[0].x);
-            gl::Uniform1i(self.u_the_texture_location, 0);
+            gl::Enable(gl::TEXTURE_2D);
             gl::ActiveTexture(gl::TEXTURE0);
-            gl::BindTexture(gl::TEXTURE_2D, self.textures[0]);
-
-            glDrawElementsInstanced(
-                gl::QUADS,
-                4,
-                gl::UNSIGNED_SHORT,
-                QUAD_INDICES.as_ptr() as _,
-                chrcount,
-                // 1,
-            );
-            println!(
-                "DRAW FG {:0>8x} BG {:0>8x} PTR {:0>8x} CHAR DIM {:?}",
-                self.screen_lower[0],
-                self.screen_bg[0],
-                self.screen_lower.as_ptr() as usize,
-                self.char_dim
-            );
         }
+        self.textures[0].bind(gl::TEXTURE_2D);
+        let chrcount = (self.screen_width * self.screen_height) as i32;
+        self.program.use_me();
+        self.attributes.enable_all();
+        self.vbos[0].bind_then(gl::ARRAY_BUFFER, |b| {
+            b.data(&self.screen_lower, gl::DYNAMIC_DRAW);
+            b.bind_to(self.attributes.uvfg, FORMAT_U8X4, 0, 0);
+        });
+        self.attributes.uvfg.divisor(1);
+        self.vbos[1].bind_then(gl::ARRAY_BUFFER, |b| {
+            b.data(&self.screen_bg, gl::DYNAMIC_DRAW);
+            b.bind_to(self.attributes.bg, FORMAT_U8X4, 0, 0);
+        });
+        self.attributes.bg.divisor(1);
+        self.uniforms.char_dim.set(bytemuck::cast(self.char_dim));
+        self.uniforms.the_texture.set(0);
+        ElementsU16 {
+            indices: QUAD_INDICES,
+        }
+        .draw_instanced(vita_gl_helpers::draw::Mode::Quads, chrcount);
+        println!(
+            "DRAW FG {:0>8x} BG {:0>8x}",
+            self.screen_lower[0], self.screen_bg[0],
+        );
     }
     fn lower_upper(&self, c: char) -> (u32, u8) {
         let i = self
@@ -333,24 +299,28 @@ impl CharMap {
 }
 
 fn trunc_row<T: Copy>(old: &Vec<T>, oldsz: usize, newsz: usize) -> Vec<T> {
-    old.chunks(oldsz)
-        .flat_map(|chunk| &chunk[0..newsz])
-        .map(|&x| x)
-        .collect()
+    let mut newvec = Vec::new();
+    newvec.extend(
+        old.chunks(oldsz)
+            .flat_map(|chunk| &chunk[0..newsz])
+            .map(|&x| x),
+    );
+    newvec
 }
 
 fn expand_row<T: Copy>(old: &Vec<T>, oldsz: usize, newsz: usize, fill: T) -> Vec<T> {
+    let mut newvec = Vec::new();
     if oldsz == 0 {
-        return vec![fill; newsz];
+        newvec.resize(newsz, fill);
+        return newvec;
     }
-    old.chunks(oldsz)
-        .flat_map(|chunk| {
-            chunk
-                .into_iter()
-                .map(|&x| x)
-                .chain(std::iter::repeat(fill).take(newsz - oldsz))
-        })
-        .collect()
+    newvec.extend(old.chunks(oldsz).flat_map(|chunk| {
+        chunk
+            .into_iter()
+            .map(|&x| x)
+            .chain(std::iter::repeat(fill).take(newsz - oldsz))
+    }));
+    newvec
 }
 
 struct ChunkIterator(usize);
@@ -365,7 +335,7 @@ impl Iterator for ChunkIterator {
                 self.0 = 0;
                 Some(n)
             }
-            n => {
+            _ => {
                 self.0 -= 256;
                 Some(256)
             }
@@ -380,9 +350,10 @@ fn rasterize_char(
     data: &[u8],
     char_width: usize,
 ) {
-    let mut ptr = ((target_uv & 0xF) * target_row_len) + ((target_uv >> 4) * char_width);
+    let mut ptr =
+        ((target_uv >> 4) * target_row_len * data.len()) + ((target_uv & 0xF) * char_width);
     let stride = target_row_len - char_width;
-    let mut char_width_iterator = 1;
+    let mut char_width_iterator = 0;
     for &datum in data.into_iter() {
         let datum = datum.reverse_bits();
         for bit_n in 0..8 {
@@ -393,9 +364,19 @@ fn rasterize_char(
             char_width_iterator += 1;
             if char_width_iterator == char_width {
                 ptr += stride;
-                char_width_iterator = 1;
+                char_width_iterator = 0;
                 break;
             }
         }
+    }
+}
+
+#[allow(dead_code)]
+fn dump_texture(tex: &[u8], width: usize) {
+    for line in tex.chunks(width) {
+        for &chr in line {
+            print!("{}", if chr == 0xFF { "█" } else { " " });
+        }
+        println!("");
     }
 }
