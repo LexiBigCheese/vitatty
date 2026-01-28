@@ -177,7 +177,7 @@ impl NeoCharRender {
         self.big_buffer_vbo
             .data(gl::ARRAY_BUFFER, &self.big_buffer, gl::DYNAMIC_DRAW);
         self.bg_program.use_me();
-        self.bg_unif_table.transform.set(transform, false); //Doesn't work, this function isn't loaded
+        self.bg_unif_table.transform.set(transform, false);
         self.bg_attr_table.enable_all();
         let b = self.big_buffer_vbo.bind_then(gl::ARRAY_BUFFER, |b| b); //if it fits!
         b.bind_to(self.bg_attr_table.color, COLOR_FORMAT, 0, 0);
@@ -189,6 +189,7 @@ impl NeoCharRender {
         self.fg_attr_table.color.divisor(1);
         self.fg_attr_table.uvxyst.divisor(1);
 
+        self.fg_unif_table.transform.set(transform, false);
         self.fg_unif_table
             .char_dim
             .set(self.rasterized_font.char_dim.to_array());
@@ -198,20 +199,25 @@ impl NeoCharRender {
         unsafe {
             gl::Enable(gl::TEXTURE_2D);
             gl::ActiveTexture(gl::TEXTURE0);
-            // gl::Enable(gl::BLEND);
-            // gl::BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
+            gl::Enable(gl::BLEND);
+            gl::BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
         }
         let mut index = 0;
         for (texindex, &n_to_draw) in self.fg_texture_counts.iter().enumerate() {
             self.rasterized_font.textures[texindex].bind(gl::TEXTURE_2D);
-            b.bind_to(self.fg_attr_table.color, COLOR_FORMAT, 0, n_chars + index);
+            b.bind_to(
+                self.fg_attr_table.color,
+                COLOR_FORMAT,
+                0,
+                (n_chars + index) * 4,
+            );
             b.bind_to(
                 self.fg_attr_table.uvxyst,
                 TILEINFO_FORMAT,
                 0,
-                (n_chars * 2) + index,
+                ((n_chars * 2) + index) * 4,
             );
-            // quads(n_to_draw);
+            quads(n_to_draw);
             index += n_to_draw;
         }
         unsafe {

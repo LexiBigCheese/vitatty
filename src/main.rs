@@ -31,12 +31,17 @@ fn main_but_errors() -> Result<std::convert::Infallible, Box<dyn std::error::Err
     let mut neo_charmgr = NeoCharRender::new(&terminus, 25, 67, 0).expect("No NeoCharRender? sad");
     // neo_charmgr.parser.screen_mut().
     for i in 0..16 {
-        writeln!(neo_charmgr.parser, "\x1B[48;5;{i}mHello World!\x1B[0m\r").unwrap();
+        let ri = 15 - i;
+        writeln!(
+            neo_charmgr.parser,
+            "\x1B[48;5;{ri}m\x1B[38;5;{i}mHello World!\x1B[0m\r"
+        )
+        .unwrap();
     }
     neo_charmgr.parser.flush().unwrap();
     let texdebug = TexDebug::new();
     let transform_arc_mutex = std::sync::Arc::new(std::sync::Mutex::new([
-        0.02f32, 0.0, -1.0, 0.0, -0.04, 1.0, 0.0, 0.0, 1.0,
+        0.03f32, 0.0, -1.0, 0.0, -0.06, 1.0, 0.0, 0.0, 1.0,
     ]));
     let transform_arc_mutex_clone = transform_arc_mutex.clone();
     std::thread::spawn(move || {
