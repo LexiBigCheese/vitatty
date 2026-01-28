@@ -2,7 +2,19 @@
 
 A Terminal Emulator for the PS Vita.
 
-Currently just renders a triangle, but that's usually the hardest part.
+## Usage
+
+It's gained some functionality now! (Albeit not much)
+
+Firstly, to set the transform of the terminal, you can send a comma separated list of 9 floats to tcp port 9039.
+
+Secondly, Most Importantly, you can send ALL SORTS to tcp port 9040, though you need to add the `\r` before the `\n` yourself.
+
+So, to put the weather on your vita:
+
+```bash
+curl wttr.in | sed -n -z 's/\r*\n/\r\n/g;p' | nc $VITA_IP 9040
+```
 
 ## Building
 

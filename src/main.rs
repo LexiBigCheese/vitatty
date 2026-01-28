@@ -28,7 +28,7 @@ fn main_but_errors() -> Result<std::convert::Infallible, Box<dyn std::error::Err
         gl::ActiveTexture(gl::TEXTURE0);
     }
     let terminus = psf2_font::load_terminus().expect("WAT");
-    let mut neo_charmgr = NeoCharRender::new(&terminus, 25, 67, 0).expect("No NeoCharRender? sad");
+    let mut neo_charmgr = NeoCharRender::new(&terminus, 40, 128, 0).expect("No NeoCharRender? sad");
     // neo_charmgr.parser.screen_mut().
     for i in 0..16 {
         let ri = 15 - i;
@@ -41,11 +41,41 @@ fn main_but_errors() -> Result<std::convert::Infallible, Box<dyn std::error::Err
     neo_charmgr.parser.flush().unwrap();
     let texdebug = TexDebug::new();
     let transform_arc_mutex = std::sync::Arc::new(std::sync::Mutex::new([
-        0.03f32, 0.0, -1.0, 0.0, -0.06, 1.0, 0.0, 0.0, 1.0,
+        0.0155f32, 0.0, -1.0, 0.0, -0.05, 1.0, 0.0, 0.0, 1.0,
     ]));
     let transform_arc_mutex_clone = transform_arc_mutex.clone();
-    std::thread::spawn(move || {
-        let transform_arc_mutex = transform_arc_mutex_clone;
+    std::thread::spawn(transform_arc_mutex_server(transform_arc_mutex_clone));
+    let string_arc_mutex: std::sync::Arc<std::sync::Mutex<String>> = Default::default();
+    std::thread::spawn(string_server(string_arc_mutex.clone()));
+    unsafe {
+        loop {
+            let the_transform = *transform_arc_mutex.lock().expect("WAT");
+            {
+                let mut the_string = string_arc_mutex.lock().expect("WAT");
+                write!(neo_charmgr.parser, "{}", the_string).unwrap();
+                the_string.clear();
+            }
+            gl::ClearColor(1.0, 1.0, 1.0, 1.0);
+            gl::Clear(gl::COLOR_BUFFER_BIT);
+            neo_charmgr.draw(&terminus, &PAL_256, the_transform);
+            // texdebug.draw(char_manager.textures[0]);
+            eprintln_errors();
+            swap_buffers();
+        }
+    }
+}
+
+fn main() {
+    initialise_default();
+    let Err(e) = main_but_errors();
+    println!("Error: {}", e);
+    println!("---- RUN END ----");
+}
+
+fn transform_arc_mutex_server(
+    transform_arc_mutex: std::sync::Arc<std::sync::Mutex<[f32; 9]>>,
+) -> impl FnMut() {
+    move || {
         let listener = std::net::TcpListener::bind("0.0.0.0:9039").expect("NO BIND TO 9039? SCAM.");
         loop {
             match listener.accept() {
@@ -79,23 +109,26 @@ fn main_but_errors() -> Result<std::convert::Infallible, Box<dyn std::error::Err
                 Err(e) => eprintln!("Aw fuck {e:?}"),
             }
         }
-    });
-    unsafe {
-        loop {
-            let the_transform = *transform_arc_mutex.lock().expect("WAT");
-            gl::ClearColor(1.0, 1.0, 1.0, 1.0);
-            gl::Clear(gl::COLOR_BUFFER_BIT);
-            neo_charmgr.draw(&terminus, &PAL_256, the_transform);
-            // texdebug.draw(char_manager.textures[0]);
-            eprintln_errors();
-            swap_buffers();
-        }
     }
 }
 
-fn main() {
-    initialise_default();
-    let Err(e) = main_but_errors();
-    println!("Error: {}", e);
-    println!("---- RUN END ----");
+fn string_server(string_arc_mutex: std::sync::Arc<std::sync::Mutex<String>>) -> impl FnMut() {
+    move || {
+        let listener = std::net::TcpListener::bind("0.0.0.0:9040").expect("NO BIND TO 9040? SCAM.");
+        loop {
+            match listener.accept() {
+                Ok((mut stream, _)) => {
+                    let mut acquired_lock = string_arc_mutex.lock().expect("SCAM");
+                    acquired_lock.clear();
+                    let Ok(_) = stream.read_to_string(&mut acquired_lock) else {
+                        continue;
+                    };
+                    writeln!(stream, "OK").unwrap();
+                    stream.flush().unwrap();
+                    continue;
+                }
+                Err(e) => eprintln!("Aw fuck {e:?}"),
+            }
+        }
+    }
 }
