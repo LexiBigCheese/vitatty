@@ -2,6 +2,7 @@
 
 pub mod char_manager;
 pub mod default_pal;
+pub mod font_rasterizer;
 pub mod texture_debug;
 pub mod vgl_allocator;
 
@@ -27,15 +28,13 @@ fn main_but_errors() -> Result<std::convert::Infallible, Box<dyn std::error::Err
             psf2_font::load_terminus().expect("Aw fuck"),
             68,
             26,
-            Box::new(PAL_16),
             Box::new(PAL_256),
         )
         .expect("aw fuck, i can't make charmap :("),
     );
-    char_manager.transform = [glam::vec3(0.1, 0., -0.5), glam::vec3(0., 0.1, -0.5)];
     for r in 1..16 {
         for (i, c) in "Hello World!".chars().enumerate() {
-            char_manager.put_char_16(c, r, 0, r - 1, i);
+            char_manager.put_char_256(c, r, 0, r - 1, i);
         }
     }
     let texdebug = TexDebug::new();

@@ -12,6 +12,8 @@ use vita_gl_helpers::{
     uniform_table,
 };
 
+use crate::font_rasterizer::{RasterizedFont, rasterize_font};
+
 pub const QUAD_INDICES: &[u16] = &[0, 1, 3, 2];
 
 pub const FORMAT_U8X4: AttributeFormat = AttributeFormat {
@@ -31,6 +33,23 @@ uniform_table!(TtyUniformTable,
     the_texture: Uniform1iv => "the_texture"
 );
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum TermColor {
+    Pal(u8),
+    True(u32),
+}
+
+impl TermColor {
+    pub const BLACK: TermColor = TermColor::Pal(0);
+    pub const WHITE: TermColor = TermColor::Pal(15);
+    pub fn select(self, pal: &[u32; 256]) -> u32 {
+        match self {
+            TermColor::Pal(i) => pal[i as usize],
+            TermColor::True(c) => c & 0xFFFFFF,
+        }
+    }
+}
+
 pub struct CharMap {
     pub font: Psf2Font,
     pub useless_buffer: Vec<glam::Vec2>,
@@ -44,6 +63,8 @@ pub struct CharMap {
     pub screen_bg: Vec<u32>,
     ///Upper bytes of characters on the screen, used to select textures
     pub screen_upper: Vec<u8>,
+    ///Color to use when resizing/scrolling
+    pub default_bg: TermColor,
     ///Vertex Buffer Objects
     pub vbos: [Buffer; 2],
     /// Vertex shader used to draw with
@@ -52,12 +73,8 @@ pub struct CharMap {
     pub fragment_shader: Shader,
     /// Program used to draw with
     pub program: Program,
-    pub textures: Vec<Texture>,
-    pub texture_width: u32,
-    pub texture_height: u32,
-    pub pal_16: Box<[u32; 16]>,
+    pub rasterized_font: RasterizedFont,
     pub pal_256: Box<[u32; 256]>,
-    pub char_dim: glam::Vec2,
     pub transform: [glam::Vec3; 2],
     // pub u_big_ass_uniform_location: i32,
     // pub u_other_big_ass_uniform_location: i32,
@@ -66,62 +83,6 @@ pub struct CharMap {
 }
 
 impl CharMap {
-    fn gen_textures(&mut self) {
-        if !self.textures.is_empty() {
-            self.textures.delete_textures();
-        }
-        let (char_width, char_height) = self.font.dimensions();
-        self.texture_width = (char_width * 16).next_power_of_two();
-        self.texture_height = (char_height * 16).next_power_of_two();
-        self.char_dim = {
-            let c_dim = glam::vec2(char_width as f32, char_height as f32);
-            let t_dim = glam::vec2(self.texture_width as f32, self.texture_height as f32);
-            c_dim / t_dim
-        };
-        let n_textures_to_create = self.font.glyph_count().div_ceil(256);
-        self.textures = vec![Texture::default(); n_textures_to_create];
-        self.textures.gen_textures();
-        //Keep this here to reuse the allocation. No need to clear as it will be overwritten.
-        let mut tex_data = vec![0u8; self.texture_width as usize * self.texture_height as usize];
-        let charcount = self.font.glyph_count();
-        println!("We need to do {charcount} chars");
-        for (tex_i, block) in ChunkIterator(self.font.glyph_count())
-            .into_iter()
-            .enumerate()
-        {
-            println!("ti {tex_i} block {block}");
-            let tex_gl = self.textures[tex_i];
-
-            for chr_index in 0..block {
-                let glyph_index = (tex_i * 256) + chr_index;
-                let glyph = self
-                    .font
-                    .get_glyph_by_index(glyph_index)
-                    .expect("Somehow, got a char out of bounds");
-                rasterize_char(
-                    &mut tex_data,
-                    self.texture_width as usize,
-                    chr_index,
-                    glyph,
-                    char_width as usize,
-                );
-            }
-            // dump_texture(&tex_data, self.texture_width as usize);
-            tex_gl.bind_then(gl::TEXTURE_2D, |b| {
-                b.image_2d(
-                    0,
-                    0x1909,
-                    self.texture_width as i32,
-                    self.texture_height as i32,
-                    0x1909u32,
-                    gl::UNSIGNED_BYTE,
-                    tex_data.as_ptr() as _,
-                );
-                b.parameter_i(gl::TEXTURE_MIN_FILTER, gl::NEAREST as i32);
-                b.parameter_i(gl::TEXTURE_MAG_FILTER, gl::NEAREST as i32);
-            });
-        }
-    }
     fn compile_link_shaders(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         let tty_true = include_str!("ttytrue.vert");
         let screen_width = self.screen_width;
@@ -147,7 +108,7 @@ impl CharMap {
             .font
             .get_glyph_index(' ')
             .expect("The font didn't have space, WTF?");
-        let space_lower_fill = (((space_index & 0xFF) << 24) as u32) & self.pal_16[0];
+        let space_lower_fill = (((space_index & 0xFF) << 24) as u32) | self.pal_256[0];
         let space_upper = (space_index >> 8) as u8; //Usually 0, but who knows, maybe someone's going to pass a really messed up PSF into this function.
         (space_lower_fill, space_upper)
     }
@@ -155,9 +116,10 @@ impl CharMap {
         font: Psf2Font,
         screen_width: usize,
         screen_height: usize,
-        pal_16: Box<[u32; 16]>,
+        // pal_16: Box<[u32; 16]>,
         pal_256: Box<[u32; 256]>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
+        let rasterized_font = rasterize_font(&font);
         let mut this = CharMap {
             font,
             useless_buffer: vec![
@@ -171,23 +133,20 @@ impl CharMap {
             screen_lower: Vec::new(),
             screen_bg: Vec::new(),
             screen_upper: Vec::new(),
+            default_bg: TermColor::Pal(0),
             vbos: [Default::default(); 2],
             vertex_shader: Shader::from(0),
             fragment_shader: load_shader(include_str!("tty.frag"), gl::FRAGMENT_SHADER)?,
             program: Program::from(0),
-            textures: vec![],
-            texture_width: 0,
-            texture_height: 0,
-            pal_16,
+            rasterized_font,
+            // pal_16,
             pal_256,
-            char_dim: glam::Vec2::ZERO,
             transform: [glam::Vec3::ZERO; 2],
             uniforms: Default::default(),
             attributes: Default::default(),
         };
         this.vbos.gen_buffers();
         this.resize(screen_width, screen_height)?;
-        this.gen_textures();
         this.compile_link_shaders()?;
         Ok(this)
     }
@@ -197,7 +156,7 @@ impl CharMap {
         term_height: usize,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let (fill_lower, fill_upper) = self.get_space();
-        let fill_bg = self.pal_16[0];
+        let fill_bg = self.pal_256[0];
         match term_width.cmp(&self.screen_width) {
             Ordering::Less => {
                 //We need to truncate each row, meaning we should make new vecs
@@ -239,7 +198,7 @@ impl CharMap {
             gl::Enable(gl::TEXTURE_2D);
             gl::ActiveTexture(gl::TEXTURE0);
         }
-        self.textures[0].bind(gl::TEXTURE_2D);
+        self.rasterized_font.textures[0].bind(gl::TEXTURE_2D);
         let chrcount = (self.screen_width * self.screen_height) as i32;
         self.program.use_me();
         self.attributes.enable_all();
@@ -253,7 +212,9 @@ impl CharMap {
             b.bind_to(self.attributes.bg, FORMAT_U8X4, 0, 0);
         });
         self.attributes.bg.divisor(1);
-        self.uniforms.char_dim.set(bytemuck::cast(self.char_dim));
+        self.uniforms
+            .char_dim
+            .set(bytemuck::cast(self.rasterized_font.char_dim));
         self.uniforms.the_texture.set(0);
         ElementsU16 {
             indices: QUAD_INDICES,
@@ -273,18 +234,21 @@ impl CharMap {
             .expect("No char or replacement or question mark found... Huh!?");
         (((i & 0xFF) << 24) as u32, (i >> 8) as u8)
     }
+    fn select_default_bg(&self) -> u32 {
+        self.default_bg.select(&self.pal_256)
+    }
     fn put_lower_upper_bg(&mut self, row: usize, col: usize, lower: u32, upper: u8, bg: u32) {
         let loc = (row * self.screen_width) + col;
         self.screen_lower[loc] = lower;
         self.screen_upper[loc] = upper;
         self.screen_bg[loc] = bg;
     }
-    pub fn put_char_16(&mut self, c: char, fg: usize, bg: usize, row: usize, col: usize) {
-        let (lower, upper) = self.lower_upper(c);
-        let lower = lower | self.pal_16[fg];
-        let bg = self.pal_16[bg];
-        self.put_lower_upper_bg(row, col, lower, upper, bg);
-    }
+    // pub fn put_char_16(&mut self, c: char, fg: usize, bg: usize, row: usize, col: usize) {
+    //     let (lower, upper) = self.lower_upper(c);
+    //     let lower = lower | self.pal_16[fg];
+    //     let bg = self.pal_16[bg];
+    //     self.put_lower_upper_bg(row, col, lower, upper, bg);
+    // }
     pub fn put_char_256(&mut self, c: char, fg: usize, bg: usize, row: usize, col: usize) {
         let (lower, upper) = self.lower_upper(c);
         let lower = lower | self.pal_256[fg];
@@ -295,6 +259,31 @@ impl CharMap {
         let (lower, upper) = self.lower_upper(c);
         let lower = lower | fg;
         self.put_lower_upper_bg(row, col, lower, upper, bg);
+    }
+    pub fn put_char_tc(&mut self, c: char, fg: TermColor, bg: TermColor, row: usize, col: usize) {
+        let (lower, upper) = self.lower_upper(c);
+        let lower = lower | fg.select(&self.pal_256);
+        let bg = bg.select(&self.pal_256);
+        self.put_lower_upper_bg(row, col, lower, upper, bg);
+    }
+    pub fn scroll_up(&mut self, n_lines: usize) {
+        let n_chars = self.screen_width * n_lines;
+        self.screen_lower.copy_within(n_chars.., 0);
+        self.screen_upper.copy_within(n_chars.., 0);
+        self.screen_bg.copy_within(n_chars.., 0);
+        let (space_lower, space_upper) = self.get_space();
+        let space_bg = self.select_default_bg();
+        let other_range = self.screen_lower.len() - n_chars;
+        self.screen_lower[other_range..].fill(space_lower);
+        self.screen_upper[other_range..].fill(space_upper);
+        self.screen_bg[other_range..].fill(space_bg);
+    }
+    pub fn clear_screen(&mut self) {
+        let (space_lower, space_upper) = self.get_space();
+        let space_bg = self.select_default_bg();
+        self.screen_lower.fill(space_lower);
+        self.screen_upper.fill(space_upper);
+        self.screen_bg.fill(space_bg);
     }
 }
 
@@ -321,62 +310,4 @@ fn expand_row<T: Copy>(old: &Vec<T>, oldsz: usize, newsz: usize, fill: T) -> Vec
             .chain(std::iter::repeat(fill).take(newsz - oldsz))
     }));
     newvec
-}
-
-struct ChunkIterator(usize);
-
-impl Iterator for ChunkIterator {
-    type Item = usize;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        match self.0 {
-            0 => None,
-            n if n < 256 => {
-                self.0 = 0;
-                Some(n)
-            }
-            _ => {
-                self.0 -= 256;
-                Some(256)
-            }
-        }
-    }
-}
-
-fn rasterize_char(
-    target_array: &mut [u8],
-    target_row_len: usize,
-    target_uv: usize,
-    data: &[u8],
-    char_width: usize,
-) {
-    let mut ptr =
-        ((target_uv >> 4) * target_row_len * data.len()) + ((target_uv & 0xF) * char_width);
-    let stride = target_row_len - char_width;
-    let mut char_width_iterator = 0;
-    for &datum in data.into_iter() {
-        let datum = datum.reverse_bits();
-        for bit_n in 0..8 {
-            let the_bool = ((datum >> bit_n) & 1) != 0;
-            let the_byte = if the_bool { 0xFF } else { 0x00 };
-            target_array[ptr] = the_byte;
-            ptr += 1;
-            char_width_iterator += 1;
-            if char_width_iterator == char_width {
-                ptr += stride;
-                char_width_iterator = 0;
-                break;
-            }
-        }
-    }
-}
-
-#[allow(dead_code)]
-fn dump_texture(tex: &[u8], width: usize) {
-    for line in tex.chunks(width) {
-        for &chr in line {
-            print!("{}", if chr == 0xFF { "█" } else { " " });
-        }
-        println!("");
-    }
 }
