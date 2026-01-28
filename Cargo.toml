@@ -10,6 +10,7 @@ bytemuck = { version = "1.24.0", features = ["derive"] }
 psf2-font = { git = "https://github.com/LexiBigCheese/psf2-font", version = "0.1.1" }
 glam = { version = "0.31.0", features = ["bytemuck"] }
 vita_gl_helpers = { git = "https://github.com/LexiBigCheese/vita_gl_helpers", version = "0.1.0" }
+vt100 = "0.16.2"
 
 [package.metadata.vita]
 title_id = "VITATTY00"

@@ -8,6 +8,12 @@ pub struct RasterizedFont {
     pub char_dim: glam::Vec2,
 }
 
+impl Drop for RasterizedFont {
+    fn drop(&mut self) {
+        self.textures.delete_textures();
+    }
+}
+
 pub fn rasterize_font(font: &Psf2Font) -> RasterizedFont {
     let (char_width, char_height) = font.dimensions();
     let texture_width = (char_width * 16).next_power_of_two() as usize;
